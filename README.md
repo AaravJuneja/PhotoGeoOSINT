@@ -15,10 +15,12 @@ Single-command photo OSINT for OpenCode on Ubuntu/WSL.
 
 - `exif_vision.py` - intake, EXIF, OCR, vision, and search hints
 - `gemini_maps_enrich.py` - Google Maps grounding helper
+- `photo_geo_report.py` - one-shot report generator that combines extraction and Maps enrichment
 - `.opencode/agents/PhotoGeoOSINT.md` - permanent agent definition
 - `.opencode/commands/photo-osint.md` - slash command wrapper
 - `.opencode/tools/photo_geo_extract.ts` - OpenCode tool for image extraction
 - `.opencode/tools/photo_geo_maps.ts` - OpenCode tool for Maps enrichment
+- `.opencode/tools/photo_geo_report.ts` - OpenCode tool for a combined report seed
 
 ## Install
 
@@ -48,6 +50,8 @@ Set your Gemini key for the current shell session only:
 export GEMINI_API_KEY="your_key_here"
 ```
 
+Image intake is intentionally permissive for personal use. There is no hard file size cap or rigid type allowlist in the pipeline.
+
 ## Use
 
 Direct agent call:
@@ -72,6 +76,12 @@ Slash command:
 
 ```text
 /photo-osint /path/to/image.jpg
+```
+
+Direct local script:
+
+```bash
+python3 photo_geo_report.py --input /path/to/image.jpg --vision --format markdown
 ```
 
 ## Check

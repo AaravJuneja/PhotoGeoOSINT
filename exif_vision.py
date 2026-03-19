@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import io
 import json
 import mimetypes
 import os
@@ -27,10 +28,79 @@ except ImportError:
 
 
 GPS_INFO_TAG = 34853
+KNOWN_IMAGE_SIGNATURES = (
+    b"\xff\xd8\xff",
+    b"\x89PNG\r\n\x1a\n",
+    b"GIF87a",
+    b"GIF89a",
+    b"BM",
+)
 
 
 def normalize_whitespace(text):
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def mime_type_allowed(mime_type):
+    return not mime_type or mime_type.startswith("image/")
+
+
+def bytes_match_image_signature(data):
+    if not data:
+        return False
+    if any(data.startswith(signature) for signature in KNOWN_IMAGE_SIGNATURES):
+        return True
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return True
+    if b"ftypheic" in data[:32] or b"ftypheif" in data[:32] or b"ftypmif1" in data[:32]:
+        return True
+    return False
+
+
+def validate_image_stream(stream, source_label, mime_type=""):
+    header = stream.read(64)
+    stream.seek(0)
+
+    warning = ""
+
+    if Image is not None:
+        try:
+            image = Image.open(stream)
+            image.verify()
+            stream.seek(0)
+            return warning
+        except Exception:
+            stream.seek(0)
+
+    if bytes_match_image_signature(header):
+        return warning
+    if mime_type_allowed(mime_type):
+        return "Accepted without strict verification; relying on MIME type or downstream tooling."
+    return "Accepted as-is without strict verification; unusual or unsupported image formats are allowed in this personal workflow."
+
+
+def validate_image_bytes(data, source_label, mime_type=""):
+    stream = io.BytesIO(data)
+    warning = validate_image_stream(stream, source_label, mime_type)
+    details = {
+        "mime_type": mime_type or "application/octet-stream",
+        "size_bytes": len(data),
+    }
+    if warning:
+        details["validation_warning"] = warning
+    return details
+
+
+def validate_image_path(image_path):
+    with open(image_path, "rb") as handle:
+        warning = validate_image_stream(handle, image_path, guess_mime_type(image_path))
+    details = {
+        "mime_type": guess_mime_type(image_path),
+        "size_bytes": os.path.getsize(image_path),
+    }
+    if warning:
+        details["validation_warning"] = warning
+    return details
 
 
 def dedupe(items):
@@ -91,13 +161,17 @@ def resolve_input(input_value):
         request = Request(raw, headers={"User-Agent": "PhotoGeoOSINT/1.0"})
         with urlopen(request, timeout=60) as response:
             content = response.read()
+            content_type = (
+                (response.headers.get("Content-Type", "") or "").split(";")[0].strip()
+            )
             suffix = guess_suffix(raw, response.headers.get("Content-Type", ""))
+        input_details = validate_image_bytes(content, raw, content_type)
         handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         handle.write(content)
         handle.flush()
         handle.close()
         cleanup_path = handle.name
-        return handle.name, "url", cleanup_path
+        return handle.name, "url", cleanup_path, input_details
 
     if is_windows_path(raw):
         raw = wsl_path(raw)
@@ -108,7 +182,8 @@ def resolve_input(input_value):
     resolved = os.path.abspath(os.path.expanduser(raw))
     if not os.path.exists(resolved):
         raise FileNotFoundError(f"Image not found: {resolved}")
-    return resolved, input_type, cleanup_path
+    input_details = validate_image_path(resolved)
+    return resolved, input_type, cleanup_path, input_details
 
 
 def safe_float(value):
@@ -172,7 +247,7 @@ def ratio_to_float(value):
     if isinstance(value, (tuple, list)) and len(value) == 2:
         numerator, denominator = value
         return float(numerator) / float(denominator or 1)
-    return float(value)
+    return float(str(value))
 
 
 def dms_to_decimal(dms, ref):
@@ -363,7 +438,7 @@ def build_queries(ocr_terms, vision_data):
 
 
 def analyze_image(input_value, use_vision):
-    resolved_path, input_type, cleanup_path = resolve_input(input_value)
+    resolved_path, input_type, cleanup_path, input_details = resolve_input(input_value)
     try:
         exif = exiftool_extract(resolved_path)
         pillow = (
@@ -415,6 +490,7 @@ def analyze_image(input_value, use_vision):
             "input": input_value,
             "resolved_path": resolved_path,
             "input_type": input_type,
+            "input_details": input_details,
             "coordinates": coordinates,
             "confidence": confidence,
             "metadata_source": metadata_source,

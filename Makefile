@@ -10,7 +10,7 @@ install-opencode:
 	$(BUN) install --cwd .opencode
 
 check-python:
-	$(PYTHON) -m py_compile exif_vision.py gemini_maps_enrich.py
+	$(PYTHON) -m py_compile exif_vision.py gemini_maps_enrich.py photo_geo_report.py
 
 check-opencode:
 	$(BUN) run --cwd .opencode check

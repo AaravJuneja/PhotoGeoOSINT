@@ -9,9 +9,11 @@ from osint_artifact_extract import extract_artifact
 from osint_barcode_extract import extract_barcodes
 from osint_challenge_context import parse_context
 from osint_common import dedupe, normalize_whitespace
+from osint_domain_probe import probe_domains
 from osint_email_phone_probe import probe_identifiers
 from osint_text_extract import extract_text_pivots
 from osint_username_lookup import lookup_username
+from osint_wifi_probe import probe_wifi
 from photo_geo_report import generate_report
 
 
@@ -101,6 +103,12 @@ def strongest_primary_lead(results):
         entities = (results["text"] or {}).get("entities") or {}
         if any(entities.get(key) for key in ["handles", "emails", "phones", "urls"]):
             return "Raw challenge text exposed structured pivots worth following immediately."
+    if results.get("domain") and ((results["domain"] or {}).get("domains") or []):
+        return "Domain probing exposed infrastructure pivots that can extend the investigation."
+    if results.get("wifi") and (
+        (results["wifi"] or {}).get("ssids") or (results["wifi"] or {}).get("bssids")
+    ):
+        return "Wi-Fi artifacts exposed SSID or BSSID pivots that can anchor the next OSINT step."
     return "No single definitive answer yet, but the workbench extracted actionable pivots to keep the OSINT chain moving."
 
 
@@ -164,6 +172,35 @@ def evidence_lines(results):
             evidence.append(f"Email probe count: {identity['email_count']}")
         if identity.get("phone_count"):
             evidence.append(f"Phone probe count: {identity['phone_count']}")
+    if results.get("domain"):
+        domain_result = results["domain"] or {}
+        if domain_result.get("error"):
+            evidence.append(f"Domain probe error: {domain_result['error']}")
+        domains = domain_result.get("domains") or []
+        if domains:
+            names = [
+                item.get("domain", "")
+                for item in domains
+                if isinstance(item, dict) and item.get("domain")
+            ]
+            if names:
+                evidence.append(f"Domain pivots: {', '.join(names[:6])}")
+    if results.get("wifi"):
+        wifi_result = results["wifi"] or {}
+        if wifi_result.get("error"):
+            evidence.append(f"Wi-Fi probe error: {wifi_result['error']}")
+        ssids = wifi_result.get("ssids") or []
+        bssids = wifi_result.get("bssids") or []
+        if ssids:
+            evidence.append(f"SSID pivots: {', '.join(ssids[:6])}")
+        if bssids:
+            formatted = [
+                item.get("bssid", "")
+                for item in bssids
+                if isinstance(item, dict) and item.get("bssid")
+            ]
+            if formatted:
+                evidence.append(f"BSSID pivots: {', '.join(formatted[:6])}")
     return dedupe(item for item in evidence if item)
 
 
@@ -177,6 +214,10 @@ def pivot_lines(results):
         pivots.extend((results["artifact"] or {}).get("suggested_pivots") or [])
     if results.get("identity"):
         pivots.extend((results["identity"] or {}).get("search_pivots") or [])
+    if results.get("domain"):
+        pivots.extend((results["domain"] or {}).get("search_pivots") or [])
+    if results.get("wifi"):
+        pivots.extend((results["wifi"] or {}).get("search_pivots") or [])
     if results.get("username"):
         pivots.extend((results["username"] or {}).get("suggested_variants") or [])
         pivots.extend((results["username"] or {}).get("profile_urls") or [])
@@ -224,6 +265,18 @@ def next_actions(results):
             actions.append(
                 "Correlate the normalized email or phone outputs with usernames, domains, and challenge answer format hints."
             )
+    if results.get("domain"):
+        domain_result = results["domain"] or {}
+        if domain_result.get("domains"):
+            actions.append(
+                "Use DNS, SSL, and WHOIS findings to pivot into subdomains, registrars, and related infrastructure."
+            )
+    if results.get("wifi"):
+        wifi_result = results["wifi"] or {}
+        if wifi_result.get("bssids") or wifi_result.get("ssids"):
+            actions.append(
+                "Pivot on SSID and BSSID values to correlate vendors, hotspots, and nearby-location clues."
+            )
     if not actions:
         actions.append(
             "Start with the strongest search pivot from the extracted evidence and validate one branch at a time."
@@ -248,6 +301,58 @@ def candidate_handles(results, explicit_username=""):
     handles.extend(artifact_entities)
     handles.extend(identity_pivots)
     return dedupe(handles)
+
+
+def candidate_domain_text(results, effective_text=""):
+    parts = []
+    if effective_text:
+        parts.append(effective_text)
+    artifact_entities = (results.get("artifact") or {}).get("entities") or {}
+    parts.extend(artifact_entities.get("urls", []))
+    parts.extend(artifact_entities.get("emails", []))
+    identity = results.get("identity") or {}
+    for report in (
+        identity.get("emails", []) if isinstance(identity.get("emails"), list) else []
+    ):
+        if not isinstance(report, dict):
+            continue
+        summary = report.get("summary", {})
+        if isinstance(summary, dict):
+            parts.append(summary.get("email", ""))
+            parts.append(summary.get("domain", ""))
+    barcode = results.get("barcode") or {}
+    for item in (
+        barcode.get("decoded_items", [])
+        if isinstance(barcode.get("decoded_items"), list)
+        else []
+    ):
+        if not isinstance(item, dict):
+            continue
+        normalized = item.get("normalized", {})
+        if isinstance(normalized, dict):
+            parts.append(normalized.get("url", ""))
+            parts.append(normalized.get("domain", ""))
+    return "\n".join(part for part in parts if part)
+
+
+def candidate_wifi_text(results, effective_text=""):
+    parts = []
+    if effective_text:
+        parts.append(effective_text)
+    artifact_entities = (results.get("artifact") or {}).get("entities") or {}
+    parts.extend(artifact_entities.get("mac_addresses", []))
+    barcode = results.get("barcode") or {}
+    for item in (
+        barcode.get("decoded_items", [])
+        if isinstance(barcode.get("decoded_items"), list)
+        else []
+    ):
+        if not isinstance(item, dict):
+            continue
+        payload = item.get("payload", "")
+        if payload:
+            parts.append(payload)
+    return "\n".join(part for part in parts if part)
 
 
 def generate_workbench_report(
@@ -326,6 +431,14 @@ def generate_workbench_report(
                         results["identity"] = identity
                 else:
                     results["identity"] = identity
+
+    domain_text = candidate_domain_text(results, effective_text=effective_text)
+    if domain_text:
+        results["domain"] = call_safe(probe_domains, text=domain_text)
+
+    wifi_text = candidate_wifi_text(results, effective_text=effective_text)
+    if wifi_text:
+        results["wifi"] = call_safe(probe_wifi, text=wifi_text)
 
     handle_candidates = candidate_handles(results, explicit_username=username)
     if handle_candidates:

@@ -11,7 +11,7 @@ Single-command photo OSINT plus a broader OSINT challenge workbench for OpenCode
 - Uses Gemini vision for landmark and city/country inference when GPS is missing
 - Enriches coordinates with official Gemini Google Maps grounding
 - Uses OpenCode web search for fast background OSINT in parallel
-- Progresses on non-image OSINT too with username lookup, challenge-text pivots, document metadata extraction, QR/barcode decoding, and email/phone normalization
+- Progresses on non-image OSINT too with username lookup, challenge-text pivots, document metadata extraction, QR/barcode decoding, email/phone normalization, domain probing, and Wi-Fi/BSSID pivots
 
 ## Files
 
@@ -25,6 +25,8 @@ Single-command photo OSINT plus a broader OSINT challenge workbench for OpenCode
 - `osint_challenge_context.py` - challenge-name and description parser
 - `osint_text_extract.py` - raw text clue pivot extractor
 - `osint_email_phone_probe.py` - free email and phone normalization plus optional local helper hooks
+- `osint_domain_probe.py` - free domain, DNS, WHOIS, and SSL probing helper
+- `osint_wifi_probe.py` - free Wi-Fi, SSID, and BSSID probing helper
 - `osint_workbench_report.py` - one-shot general OSINT challenge report generator
 - `photo_geo_report.py` - one-shot report generator that combines extraction and Maps enrichment
 - `.opencode/agents/PhotoGeoOSINT.md` - permanent agent definition
@@ -41,6 +43,8 @@ Single-command photo OSINT plus a broader OSINT challenge workbench for OpenCode
 - `.opencode/tools/osint_challenge_context.ts` - OpenCode tool for challenge parsing
 - `.opencode/tools/osint_text_extract.ts` - OpenCode tool for raw clue text extraction
 - `.opencode/tools/osint_email_phone_probe.ts` - OpenCode tool for email and phone enrichment
+- `.opencode/tools/osint_domain_probe.ts` - OpenCode tool for domain and infrastructure probing
+- `.opencode/tools/osint_wifi_probe.ts` - OpenCode tool for SSID and BSSID probing
 - `.opencode/tools/osint_workbench_report.ts` - OpenCode tool for one-shot general challenge analysis
 
 ## Install
@@ -72,7 +76,7 @@ python3 -m pip install --break-system-packages holehe phonenumbers
 Optional Ubuntu packages for deeper local probes when you want them:
 
 ```bash
-sudo apt update && sudo apt install -y dnsutils bind9-host
+sudo apt update && sudo apt install -y dnsutils bind9-host whois ieee-data
 ```
 
 OpenCode tool dependencies:
@@ -196,6 +200,18 @@ Email and phone helper:
 python3 osint_email_phone_probe.py --text "contact clue: sakura_snow@proton.me and +44 1234 567890"
 ```
 
+Domain helper:
+
+```bash
+python3 osint_domain_probe.py --text "contact clue: sakura@example.com and https://example.com/profile"
+```
+
+Wi-Fi and BSSID helper:
+
+```bash
+python3 osint_wifi_probe.py --text "BSSID 00:11:22:33:44:55 and WIFI:S:Cafe_Network;T:WPA;P:secret;;"
+```
+
 One-shot general challenge report:
 
 ```bash
@@ -222,7 +238,7 @@ The agent returns:
 The general OSINT agent returns:
 
 - the strongest current lead even when there is no usable image location
-- extracted identities and artifact pivots from usernames, files, QR codes, and raw text clues
+- extracted identities and artifact pivots from usernames, files, QR codes, raw text clues, domains, and Wi-Fi artifacts
 - next actions that keep the investigation moving instead of stalling on one branch
 
 ## Recommended split

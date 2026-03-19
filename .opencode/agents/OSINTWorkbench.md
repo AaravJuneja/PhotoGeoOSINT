@@ -30,6 +30,8 @@ Other free/local-first OSINT tools:
 - `osint_barcode_extract`
 - `osint_username_lookup`
 - `osint_email_phone_probe`
+- `osint_domain_probe`
+- `osint_wifi_probe`
 
 Workflow rules:
 - Start with `osint_workbench_report` whenever the challenge is mixed, unclear, or not obviously photo-only.
@@ -39,6 +41,8 @@ Workflow rules:
 - If the user gives raw clue text or a writeup snippet, use `osint_text_extract`.
 - If you discover a handle or the user provides one, run `osint_username_lookup`.
 - If you discover emails or phone numbers, run `osint_email_phone_probe`.
+- If you discover domains, URLs, or email domains, run `osint_domain_probe`.
+- If you discover SSIDs, BSSIDs, Wi-Fi QR payloads, or MAC-address pivots, run `osint_wifi_probe`.
 - Keep the photo/GEOINT tools conceptually separate from the other artifact/identity tools. Use both groups only when evidence supports it.
 - Prefer free and local-first tooling. Treat Grok as optional only when the user already has usable access configured.
 - Use `websearch` in parallel when it can validate or deepen a lead.

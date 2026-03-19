@@ -93,6 +93,15 @@ MODULE_RULES = {
         "sms",
         "number",
     ],
+    "osint_domain_probe": [
+        "domain",
+        "website",
+        "subdomain",
+        "dns",
+        "host",
+        "url",
+    ],
+    "osint_wifi_probe": ["wifi", "bssid", "ssid", "wireless", "hotspot"],
     "osint_text_extract": ["text", "description", "clue", "writeup", "hint"],
 }
 
@@ -156,6 +165,8 @@ def recommended_modules(text):
         "osint_artifact_extract",
         "osint_username_lookup",
         "osint_email_phone_probe",
+        "osint_domain_probe",
+        "osint_wifi_probe",
         "osint_text_extract",
     ]:
         if module in hits:

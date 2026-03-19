@@ -37,7 +37,9 @@ def recommended_next_steps(entities):
     if entities.get("handles"):
         steps.append("Run username lookup on the strongest handle candidates.")
     if entities.get("urls") or entities.get("domains"):
-        steps.append("Review linked domains and profile URLs for secondary identities.")
+        steps.append(
+            "Run the domain probe on linked domains and profile URLs for DNS, SSL, and WHOIS pivots."
+        )
     if entities.get("emails"):
         steps.append(
             "Run the email/phone probe on exposed email addresses for recovery hints, domains, and reuse."
@@ -50,7 +52,7 @@ def recommended_next_steps(entities):
         steps.append("Map any coordinates and compare them against challenge wording.")
     if entities.get("mac_addresses"):
         steps.append(
-            "Search MAC/BSSID values in Wi-Fi OSINT datasets or challenge writeups."
+            "Run the Wi-Fi probe on MAC or BSSID values to extract vendor and SSID pivots."
         )
     return steps or [
         "No strong structured entity found; rely on challenge-context search pivots."

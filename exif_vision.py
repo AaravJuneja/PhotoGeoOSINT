@@ -118,6 +118,10 @@ def dedupe(items):
     return output
 
 
+def compact_context_text(*parts):
+    return normalize_whitespace(" ".join(part for part in parts if part))
+
+
 def is_url(value):
     parsed = urlparse(value)
     return parsed.scheme in {"http", "https"}
@@ -348,7 +352,7 @@ def parse_json_text(text):
         return {"raw": cleaned}
 
 
-def describe_image(image_path, ocr_text):
+def describe_image(image_path, ocr_text, challenge_context=""):
     if genai is None or types is None:
         return {"available": False, "reason": "google-genai is not installed"}
 
@@ -369,6 +373,8 @@ def describe_image(image_path, ocr_text):
         prompt += (
             f"\nOCR text already extracted: {normalize_whitespace(ocr_text)[:1200]}"
         )
+    if challenge_context:
+        prompt += f"\nOptional challenge context to use as a hint, not a fact: {normalize_whitespace(challenge_context)[:1200]}"
 
     model = os.getenv("PHOTO_GEO_GEMINI_VISION_MODEL", "gemini-2.5-flash")
     client = genai.Client(api_key=api_key)
@@ -398,7 +404,7 @@ def describe_image(image_path, ocr_text):
     return data
 
 
-def build_queries(ocr_terms, vision_data):
+def build_queries(ocr_terms, vision_data, challenge_context=""):
     queries = []
     best_guess = vision_data.get("best_guess") if isinstance(vision_data, dict) else {}
     best_guess = best_guess if isinstance(best_guess, dict) else {}
@@ -434,10 +440,17 @@ def build_queries(ocr_terms, vision_data):
     for term in search_terms[:3] if isinstance(search_terms, list) else []:
         queries.append(f"{term} {location_context}".strip())
 
+    if challenge_context:
+        queries.append(challenge_context)
+        for phrase in ocr_terms[:2]:
+            queries.append(f'{challenge_context} "{phrase}"'.strip())
+        for landmark in landmarks[:2] if isinstance(landmarks, list) else []:
+            queries.append(f'{challenge_context} "{landmark}"'.strip())
+
     return dedupe(queries)[:8]
 
 
-def analyze_image(input_value, use_vision):
+def analyze_image(input_value, use_vision, challenge_context=""):
     resolved_path, input_type, cleanup_path, input_details = resolve_input(input_value)
     try:
         exif = exiftool_extract(resolved_path)
@@ -476,7 +489,7 @@ def analyze_image(input_value, use_vision):
 
         vision = {}
         if use_vision and coordinates is None:
-            vision = describe_image(resolved_path, ocr_text)
+            vision = describe_image(resolved_path, ocr_text, challenge_context)
             if isinstance(vision, dict):
                 candidate_confidence = str(vision.get("confidence", "")).strip().lower()
                 if candidate_confidence == "high":
@@ -488,6 +501,7 @@ def analyze_image(input_value, use_vision):
 
         result = {
             "input": input_value,
+            "challenge_context": challenge_context,
             "resolved_path": resolved_path,
             "input_type": input_type,
             "input_details": input_details,
@@ -498,7 +512,11 @@ def analyze_image(input_value, use_vision):
             "ocr_text": ocr_text,
             "ocr_terms": ocr_terms,
             "vision": vision,
-            "suggested_web_queries": build_queries(ocr_terms, vision),
+            "suggested_web_queries": build_queries(
+                ocr_terms,
+                vision,
+                compact_context_text(challenge_context),
+            ),
         }
         return result
     finally:
@@ -516,10 +534,15 @@ def main():
     parser.add_argument(
         "--vision", action="store_true", help="Use Gemini vision when GPS is missing"
     )
+    parser.add_argument(
+        "--challenge-context",
+        default="",
+        help="Optional CTF or investigation context to guide image analysis",
+    )
     args = parser.parse_args()
 
     try:
-        result = analyze_image(args.input, args.vision)
+        result = analyze_image(args.input, args.vision, args.challenge_context)
     except Exception as exc:
         result = {"error": str(exc), "input": args.input}
 

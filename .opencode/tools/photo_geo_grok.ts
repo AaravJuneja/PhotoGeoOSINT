@@ -9,7 +9,7 @@ function resolveRoot() {
     return process.env.PHOTO_GEO_OSINT_ROOT
   }
   const relativeRoot = path.resolve(import.meta.dir, "..", "..")
-  return fs.existsSync(path.join(relativeRoot, "photo_geo_report.py")) ? relativeRoot : FALLBACK_ROOT
+  return fs.existsSync(path.join(relativeRoot, "grok_search_enrich.py")) ? relativeRoot : FALLBACK_ROOT
 }
 
 function resolvePython(root: string) {
@@ -37,34 +37,26 @@ async function run(argv: string[]) {
 }
 
 export default tool({
-  description: "Generate a structured photo OSINT report from extraction and Maps grounding.",
+  description: "Optionally use xAI Grok web/X search for extra real-time OSINT context.",
   args: {
-    input: tool.schema.string().describe("Linux path, Windows path, or HTTP/HTTPS URL to an image"),
-    query: tool.schema.string().default("Describe nearby places, restaurants, POIs and current conditions within 15-minute walk").describe("Maps grounding prompt"),
-    vision: tool.schema.boolean().default(true).describe("Use Gemini vision when GPS is missing"),
-    lat: tool.schema.number().optional().describe("Optional user-supplied latitude"),
-    lng: tool.schema.number().optional().describe("Optional user-supplied longitude"),
-    city: tool.schema.string().default("").describe("Optional user-supplied city fallback"),
+    prompt: tool.schema.string().describe("Research prompt for Grok web and X search"),
     challenge_name: tool.schema.string().default("").describe("Optional CTF challenge name"),
     challenge_description: tool.schema.string().default("").describe("Optional CTF challenge description"),
-    use_grok: tool.schema.boolean().default(false).describe("Optionally run Grok web and X search enrichment when XAI_API_KEY is set"),
-    format: tool.schema.enum(["json", "markdown"]).default("json").describe("Output format"),
+    enable_x_search: tool.schema.boolean().default(true).describe("Also search X posts via xAI x_search"),
+    enable_image_understanding: tool.schema.boolean().default(true).describe("Allow Grok search tools to analyze images they encounter"),
   },
   async execute(args) {
     const root = resolveRoot()
-    const script = path.join(root, "photo_geo_report.py")
+    const script = path.join(root, "grok_search_enrich.py")
     if (!fs.existsSync(script)) {
       throw new Error(`Missing helper script: ${script}`)
     }
 
-    const command = [resolvePython(root), script, "--input", args.input, "--query", args.query, "--format", args.format]
-    if (args.vision) command.push("--vision")
-    if (args.lat !== undefined) command.push("--lat", String(args.lat))
-    if (args.lng !== undefined) command.push("--lng", String(args.lng))
-    if (args.city) command.push("--city", args.city)
+    const command = [resolvePython(root), script, "--prompt", args.prompt]
     if (args.challenge_name) command.push("--challenge-name", args.challenge_name)
     if (args.challenge_description) command.push("--challenge-description", args.challenge_description)
-    if (args.use_grok) command.push("--use-grok")
+    if (!args.enable_x_search) command.push("--disable-x-search")
+    if (!args.enable_image_understanding) command.push("--disable-image-understanding")
     return run(command)
   },
 })

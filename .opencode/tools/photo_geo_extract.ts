@@ -41,6 +41,7 @@ export default tool({
   args: {
     input: tool.schema.string().describe("Linux path, Windows path, or HTTP/HTTPS URL to an image"),
     vision: tool.schema.boolean().default(true).describe("Use Gemini vision when GPS is missing"),
+    challenge_context: tool.schema.string().default("").describe("Optional CTF or investigation context to guide image analysis"),
   },
   async execute(args) {
     const root = resolveRoot()
@@ -52,6 +53,9 @@ export default tool({
     const command = [resolvePython(root), script, "--input", args.input]
     if (args.vision) {
       command.push("--vision")
+    }
+    if (args.challenge_context) {
+      command.push("--challenge-context", args.challenge_context)
     }
     return run(command)
   },

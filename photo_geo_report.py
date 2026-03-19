@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import sys
 
 from exif_vision import analyze_image, dedupe, normalize_whitespace
 from gemini_maps_enrich import enrich_with_maps
+from grok_search_enrich import grok_enrich
 
 
 DEFAULT_MAPS_QUERY = "Describe nearby places, restaurants, POIs and current conditions within 15-minute walk"
@@ -35,6 +37,15 @@ def best_guess_text(analysis):
     return ", ".join(part for part in parts if part)
 
 
+def challenge_context(challenge_name="", challenge_description=""):
+    parts = []
+    if challenge_name:
+        parts.append(f"CTF challenge name: {challenge_name}")
+    if challenge_description:
+        parts.append(f"CTF challenge description: {challenge_description}")
+    return " | ".join(parts)
+
+
 def resolve_coordinates(analysis, user_lat=None, user_lng=None):
     extracted = analysis.get("coordinates") if isinstance(analysis, dict) else None
     if isinstance(extracted, dict):
@@ -63,8 +74,12 @@ def normalize_list(values, limit=5):
     return dedupe(values)[:limit]
 
 
-def background_bullets(analysis):
+def background_bullets(analysis, grok_result=None):
     bullets = []
+    challenge_hint = normalize_whitespace(analysis.get("challenge_context", ""))
+    if challenge_hint:
+        bullets.append(f"Challenge context: {challenge_hint}")
+
     input_details = analysis.get("input_details") if isinstance(analysis, dict) else {}
     if isinstance(input_details, dict):
         mime_type = input_details.get("mime_type")
@@ -110,10 +125,49 @@ def background_bullets(analysis):
     if suggested_queries:
         bullets.append(f"Suggested search pivots: {' | '.join(suggested_queries)}")
 
+    if isinstance(grok_result, dict):
+        grok_answer = normalize_whitespace(grok_result.get("answer", ""))
+        if grok_answer:
+            bullets.append(f"Grok web/X enrichment: {grok_answer}")
+        grok_sources = (
+            grok_result.get("sources")
+            if isinstance(grok_result.get("sources"), list)
+            else []
+        )
+        if grok_sources:
+            bullets.append(f"Grok citations: {' | '.join(grok_sources[:5])}")
+
     return bullets or ["No strong OCR or landmark pivots extracted."]
 
 
-def build_markdown_report(analysis, maps_result, lat, lng, coordinate_source):
+def build_grok_prompt(analysis, challenge_name="", challenge_description=""):
+    prompt_parts = [
+        "Investigate the likely location, related landmarks, local news, people, and CTF-relevant leads for this image.",
+        "Focus on OCR terms, landmark identification, and any challenge-specific framing.",
+    ]
+    if challenge_name:
+        prompt_parts.append(f"Challenge name: {challenge_name}")
+    if challenge_description:
+        prompt_parts.append(f"Challenge description: {challenge_description}")
+
+    guess = best_guess_text(analysis)
+    if guess:
+        prompt_parts.append(f"Current best location hypothesis: {guess}")
+
+    ocr_terms = normalize_list(analysis.get("ocr_terms"), limit=6)
+    if ocr_terms:
+        prompt_parts.append(f"OCR terms: {', '.join(ocr_terms)}")
+
+    suggested_queries = normalize_list(analysis.get("suggested_web_queries"), limit=6)
+    if suggested_queries:
+        prompt_parts.append(f"Suggested search pivots: {' | '.join(suggested_queries)}")
+
+    return "\n".join(prompt_parts)
+
+
+def build_markdown_report(
+    analysis, maps_result, lat, lng, coordinate_source, grok_result=None
+):
     confidence = analysis.get("confidence", "Medium")
     maps_answer = "No Google Maps enrichment available."
     maps_sources = []
@@ -130,7 +184,9 @@ def build_markdown_report(analysis, maps_result, lat, lng, coordinate_source):
         )
 
     source_lines = maps_sources or ["- None"]
-    osint_lines = [f"- {bullet}" for bullet in background_bullets(analysis)]
+    osint_lines = [
+        f"- {bullet}" for bullet in background_bullets(analysis, grok_result)
+    ]
 
     return "\n".join(
         [
@@ -154,8 +210,12 @@ def generate_report(
     user_lat=None,
     user_lng=None,
     user_city="",
+    challenge_name="",
+    challenge_description="",
+    use_grok=False,
 ):
-    analysis = analyze_image(input_value, use_vision)
+    hint_text = challenge_context(challenge_name, challenge_description)
+    analysis = analyze_image(input_value, use_vision, hint_text)
     if analysis.get("error"):
         return {"error": analysis["error"], "analysis": analysis}
 
@@ -167,10 +227,26 @@ def generate_report(
     city_fallback = derive_city_fallback(analysis, user_city)
 
     maps_result = None
+    maps_query = query
+    if hint_text:
+        maps_query += f"\nUse this optional CTF context only as a hint: {hint_text}"
+
     if lat is not None and lng is not None:
-        maps_result = enrich_with_maps(lat=lat, lng=lng, query=query)
+        maps_result = enrich_with_maps(lat=lat, lng=lng, query=maps_query)
     elif city_fallback:
-        maps_result = enrich_with_maps(city_fallback=city_fallback, query=query)
+        maps_result = enrich_with_maps(city_fallback=city_fallback, query=maps_query)
+
+    grok_result = None
+    if use_grok and os.getenv("XAI_API_KEY"):
+        grok_result = grok_enrich(
+            build_grok_prompt(
+                analysis,
+                challenge_name=challenge_name,
+                challenge_description=challenge_description,
+            ),
+            challenge_name=challenge_name,
+            challenge_description=challenge_description,
+        )
 
     markdown = build_markdown_report(
         analysis,
@@ -178,16 +254,23 @@ def generate_report(
         lat,
         lng,
         coordinate_source,
+        grok_result,
     )
     return {
         "analysis": analysis,
         "maps": maps_result,
+        "grok": grok_result,
         "coordinates": {
             "lat": lat,
             "lng": lng,
             "source": coordinate_source,
         },
         "city_fallback": city_fallback,
+        "grok_prompt": build_grok_prompt(
+            analysis,
+            challenge_name=challenge_name,
+            challenge_description=challenge_description,
+        ),
         "markdown": markdown,
     }
 
@@ -212,6 +295,19 @@ def main():
         "--city", default="", help="User-supplied city or area fallback"
     )
     parser.add_argument(
+        "--challenge-name", default="", help="Optional CTF challenge name"
+    )
+    parser.add_argument(
+        "--challenge-description",
+        default="",
+        help="Optional CTF challenge description",
+    )
+    parser.add_argument(
+        "--use-grok",
+        action="store_true",
+        help="Optionally run Grok web and X search enrichment when XAI_API_KEY is set",
+    )
+    parser.add_argument(
         "--query", default=DEFAULT_MAPS_QUERY, help="Google Maps grounding prompt"
     )
     parser.add_argument(
@@ -230,6 +326,9 @@ def main():
             user_lat=args.lat,
             user_lng=args.lng,
             user_city=args.city,
+            challenge_name=args.challenge_name,
+            challenge_description=args.challenge_description,
+            use_grok=args.use_grok,
         )
     except Exception as exc:
         report = {"error": str(exc), "input": args.input}

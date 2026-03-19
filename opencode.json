@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "experimental": {
+    "batch_tool": true
+  },
+  "permission": {
+    "photo_geo_*": "allow",
+    "websearch": "allow",
+    "codesearch": "allow",
+    "question": "allow"
+  }
+}

@@ -5,6 +5,7 @@
   },
   "permission": {
     "photo_geo_*": "allow",
+    "osint_*": "allow",
     "websearch": "allow",
     "codesearch": "allow",
     "question": "allow"

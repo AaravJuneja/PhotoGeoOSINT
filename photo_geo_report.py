@@ -7,6 +7,8 @@ import sys
 from exif_vision import analyze_image, dedupe, normalize_whitespace
 from gemini_maps_enrich import enrich_with_maps
 from grok_search_enrich import grok_enrich
+from osint_barcode_extract import extract_barcodes
+from osint_email_phone_probe import probe_identifiers
 
 
 DEFAULT_MAPS_QUERY = "Describe nearby places, restaurants, POIs and current conditions within 15-minute walk"
@@ -74,7 +76,9 @@ def normalize_list(values, limit=5):
     return dedupe(values)[:limit]
 
 
-def background_bullets(analysis, grok_result=None):
+def background_bullets(
+    analysis, grok_result=None, barcode_result=None, identity_result=None
+):
     bullets = []
     challenge_hint = normalize_whitespace(analysis.get("challenge_context", ""))
     if challenge_hint:
@@ -100,6 +104,21 @@ def background_bullets(analysis, grok_result=None):
     ocr_terms = normalize_list(analysis.get("ocr_terms"), limit=6)
     if ocr_terms:
         bullets.append(f"OCR pivots: {', '.join(ocr_terms)}")
+
+    if isinstance(barcode_result, dict):
+        decoded_items_raw = barcode_result.get("decoded_items")
+        decoded_items = (
+            list(decoded_items_raw) if isinstance(decoded_items_raw, list) else []
+        )
+        payloads = []
+        for item in decoded_items:
+            if not isinstance(item, dict):
+                continue
+            payload = item.get("payload", "")
+            if payload:
+                payloads.append(payload)
+        if payloads:
+            bullets.append(f"QR or barcode payloads: {' | '.join(payloads[:4])}")
 
     vision = analysis.get("vision") if isinstance(analysis, dict) else {}
     if isinstance(vision, dict):
@@ -137,6 +156,38 @@ def background_bullets(analysis, grok_result=None):
         if grok_sources:
             bullets.append(f"Grok citations: {' | '.join(grok_sources[:5])}")
 
+    if isinstance(identity_result, dict):
+        email_reports_raw = identity_result.get("emails")
+        phone_reports_raw = identity_result.get("phones")
+        email_reports = (
+            list(email_reports_raw) if isinstance(email_reports_raw, list) else []
+        )
+        phone_reports = (
+            list(phone_reports_raw) if isinstance(phone_reports_raw, list) else []
+        )
+        emails = []
+        phones = []
+        for report in email_reports:
+            if not isinstance(report, dict):
+                continue
+            summary = report.get("summary", {})
+            if isinstance(summary, dict) and summary.get("email"):
+                emails.append(summary["email"])
+        for report in phone_reports:
+            if not isinstance(report, dict):
+                continue
+            summary = report.get("summary", {})
+            if isinstance(summary, dict):
+                phone_value = summary.get("e164") or summary.get("raw", "")
+                if phone_value:
+                    phones.append(phone_value)
+        emails = [item for item in emails if item]
+        phones = [item for item in phones if item]
+        if emails:
+            bullets.append(f"Email pivots: {', '.join(emails[:4])}")
+        if phones:
+            bullets.append(f"Phone pivots: {', '.join(phones[:4])}")
+
     return bullets or ["No strong OCR or landmark pivots extracted."]
 
 
@@ -166,7 +217,14 @@ def build_grok_prompt(analysis, challenge_name="", challenge_description=""):
 
 
 def build_markdown_report(
-    analysis, maps_result, lat, lng, coordinate_source, grok_result=None
+    analysis,
+    maps_result,
+    lat,
+    lng,
+    coordinate_source,
+    grok_result=None,
+    barcode_result=None,
+    identity_result=None,
 ):
     confidence = analysis.get("confidence", "Medium")
     maps_answer = "No Google Maps enrichment available."
@@ -185,7 +243,13 @@ def build_markdown_report(
 
     source_lines = maps_sources or ["- None"]
     osint_lines = [
-        f"- {bullet}" for bullet in background_bullets(analysis, grok_result)
+        f"- {bullet}"
+        for bullet in background_bullets(
+            analysis,
+            grok_result,
+            barcode_result=barcode_result,
+            identity_result=identity_result,
+        )
     ]
 
     return "\n".join(
@@ -236,6 +300,30 @@ def generate_report(
     elif city_fallback:
         maps_result = enrich_with_maps(city_fallback=city_fallback, query=maps_query)
 
+    barcode_result = None
+    try:
+        barcode_result = extract_barcodes(input_value)
+    except Exception:
+        barcode_result = None
+
+    identity_text_parts = [analysis.get("ocr_text", "")]
+    if isinstance(barcode_result, dict):
+        for item in (
+            barcode_result.get("decoded_items", [])
+            if isinstance(barcode_result.get("decoded_items"), list)
+            else []
+        ):
+            payload = item.get("payload", "")
+            if payload:
+                identity_text_parts.append(payload)
+    identity_result = None
+    identity_text = "\n".join(part for part in identity_text_parts if part)
+    if identity_text:
+        try:
+            identity_result = probe_identifiers(text=identity_text)
+        except Exception:
+            identity_result = None
+
     grok_result = None
     if use_grok and os.getenv("XAI_API_KEY"):
         grok_result = grok_enrich(
@@ -255,10 +343,14 @@ def generate_report(
         lng,
         coordinate_source,
         grok_result,
+        barcode_result,
+        identity_result,
     )
     return {
         "analysis": analysis,
         "maps": maps_result,
+        "barcode": barcode_result,
+        "identity": identity_result,
         "grok": grok_result,
         "coordinates": {
             "lat": lat,

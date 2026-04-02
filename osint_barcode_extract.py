@@ -13,6 +13,7 @@ from osint_common import (
     collect_entities,
     dedupe,
     file_details,
+    parse_wifi_payload,
     resolve_input,
 )
 
@@ -21,23 +22,6 @@ try:
 except ImportError:
     Image = None
     ImageOps = None
-
-
-def parse_wifi_payload(payload):
-    fields = {}
-    body = payload[5:]
-    for segment in body.split(";"):
-        if ":" not in segment:
-            continue
-        key, value = segment.split(":", 1)
-        fields[key] = value
-    return {
-        "type": "wifi",
-        "ssid": fields.get("S", ""),
-        "auth": fields.get("T", ""),
-        "password": fields.get("P", ""),
-        "hidden": fields.get("H", ""),
-    }
 
 
 def normalize_payload(payload):

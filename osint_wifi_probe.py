@@ -5,7 +5,7 @@ import os
 import re
 import sys
 
-from osint_common import collect_entities, dedupe, normalize_whitespace
+from osint_common import collect_entities, dedupe, normalize_whitespace, parse_wifi_payload
 
 
 SSID_PATTERN = re.compile(
@@ -26,22 +26,6 @@ def normalize_bssid(value):
         return ""
     upper = cleaned.upper()
     return ":".join(upper[index : index + 2] for index in range(0, 12, 2))
-
-
-def parse_wifi_payload(payload):
-    fields = {}
-    body = payload[5:]
-    for segment in body.split(";"):
-        if ":" not in segment:
-            continue
-        key, value = segment.split(":", 1)
-        fields[key] = value
-    return {
-        "ssid": fields.get("S", ""),
-        "auth": fields.get("T", ""),
-        "password": fields.get("P", ""),
-        "hidden": fields.get("H", ""),
-    }
 
 
 def extract_ssids(text):

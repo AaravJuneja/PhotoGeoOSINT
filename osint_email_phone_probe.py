@@ -10,7 +10,7 @@ import socket
 import subprocess
 import sys
 
-from osint_common import collect_entities, dedupe, normalize_whitespace
+from osint_common import EMAIL_PATTERN, collect_entities, dedupe, normalize_whitespace
 
 try:
     phonenumbers = importlib.import_module("phonenumbers")
@@ -20,9 +20,6 @@ except ImportError:
     phonenumbers = None
     carrier = None
     geocoder = None
-
-
-EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 
 def available_tools():

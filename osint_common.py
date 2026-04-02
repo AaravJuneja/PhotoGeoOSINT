@@ -294,6 +294,23 @@ def collect_entities(texts):
     }
 
 
+def parse_wifi_payload(payload):
+    fields = {}
+    body = payload[5:]
+    for segment in body.split(";"):
+        if ":" not in segment:
+            continue
+        key, value = segment.split(":", 1)
+        fields[key] = value
+    return {
+        "type": "wifi",
+        "ssid": fields.get("S", ""),
+        "auth": fields.get("T", ""),
+        "password": fields.get("P", ""),
+        "hidden": fields.get("H", ""),
+    }
+
+
 def safe_json_loads(text):
     try:
         return json.loads(text)

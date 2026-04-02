@@ -13,6 +13,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
+from osint_common import dedupe, normalize_whitespace
+
 try:
     from PIL import ExifTags, Image
 except ImportError:
@@ -35,10 +37,6 @@ KNOWN_IMAGE_SIGNATURES = (
     b"GIF89a",
     b"BM",
 )
-
-
-def normalize_whitespace(text):
-    return re.sub(r"\s+", " ", text or "").strip()
 
 
 def mime_type_allowed(mime_type):
@@ -101,21 +99,6 @@ def validate_image_path(image_path):
     if warning:
         details["validation_warning"] = warning
     return details
-
-
-def dedupe(items):
-    seen = set()
-    output = []
-    for item in items:
-        cleaned = normalize_whitespace(str(item))
-        if not cleaned:
-            continue
-        key = cleaned.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append(cleaned)
-    return output
 
 
 def compact_context_text(*parts):

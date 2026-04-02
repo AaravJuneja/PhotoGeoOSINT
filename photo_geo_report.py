@@ -4,10 +4,11 @@ import json
 import os
 import sys
 
-from exif_vision import analyze_image, dedupe, normalize_whitespace
+from exif_vision import analyze_image
 from gemini_maps_enrich import enrich_with_maps
 from grok_search_enrich import grok_enrich
 from osint_barcode_extract import extract_barcodes
+from osint_common import dedupe, normalize_whitespace
 from osint_email_phone_probe import probe_identifiers
 
 

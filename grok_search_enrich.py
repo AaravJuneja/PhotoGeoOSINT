@@ -6,9 +6,7 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-
-def normalize_whitespace(text):
-    return " ".join((text or "").split()).strip()
+from osint_common import normalize_whitespace
 
 
 def extract_text(response_json):
